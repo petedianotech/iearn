@@ -1,0 +1,9 @@
+{
+  "appId": "com.iearn.app",
+  "appName": "iearn",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}

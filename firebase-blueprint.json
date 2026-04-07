@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the iearn app.",
+      "type": "object",
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address."
+        },
+        "balance": {
+          "type": "number",
+          "description": "The user's current balance in MWK."
+        },
+        "dailyEarnings": {
+          "type": "number",
+          "description": "The user's earnings for the current day."
+        },
+        "lastBonusAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The last time the user claimed a daily bonus."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "description": "The user's role."
+        }
+      },
+      "required": ["displayName", "email", "balance", "dailyEarnings", "role"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A task that users can complete to earn money.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the task."
+        },
+        "description": {
+          "type": "string",
+          "description": "A short description of the task."
+        },
+        "reward": {
+          "type": "number",
+          "description": "The reward amount in MWK."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["survey", "game", "ad", "bonus"],
+          "description": "The type of task."
+        },
+        "color": {
+          "type": "string",
+          "description": "Tailwind color class for the task indicator."
+        }
+      },
+      "required": ["title", "description", "reward", "type", "color"]
+    },
+    "UserTask": {
+      "title": "UserTask",
+      "description": "A record of a user completing a task.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "The ID of the task."
+        },
+        "reward": {
+          "type": "number",
+          "description": "The reward earned."
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the task was completed."
+        }
+      },
+      "required": ["userId", "taskId", "reward", "completedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles and balances."
+    },
+    "tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Stores available tasks."
+    },
+    "userTasks/{userTaskId}": {
+      "schema": { "$ref": "#/entities/UserTask" },
+      "description": "Stores records of completed tasks."
+    }
+  }
+}

@@ -1,0 +1,103 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == "petedianotech@gmail.com" && request.auth.token.email_verified == true));
+    }
+    
+    function hasOnlyAllowedFields(allowedFields) {
+      return request.resource.data.keys().hasOnly(allowedFields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['displayName', 'email', 'balance', 'dailyEarnings', 'lastBonusAt', 'role']) &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 50 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.balance is number && data.balance >= 0 &&
+             data.dailyEarnings is number && data.dailyEarnings >= 0 &&
+             ( !('lastBonusAt' in data) || data.lastBonusAt is timestamp ) &&
+             data.role in ['user', 'admin'];
+    }
+    
+    function isValidTask(data) {
+      return hasOnlyAllowedFields(['title', 'description', 'reward', 'type', 'color']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 100 &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 500 &&
+             data.reward is number && data.reward > 0 &&
+             data.type in ['survey', 'game', 'ad', 'bonus'] &&
+             data.color is string && data.color.size() <= 50;
+    }
+    
+    function isValidUserTask(data) {
+      return hasOnlyAllowedFields(['userId', 'taskId', 'reward', 'completedAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.taskId is string && data.taskId.size() > 0 &&
+             data.reward is number && data.reward > 0 &&
+             data.completedAt is timestamp;
+    }
+    
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Allow creation if the user is creating their own profile, and role is 'user' (unless admin)
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && 
+                    (request.resource.data.role == 'user' || isAdmin());
+                    
+      // Allow update if owner (but cannot change role) or admin
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    (
+                      (isOwner(userId) && request.resource.data.role == resource.data.role) || 
+                      isAdmin()
+                    );
+                    
+      allow delete: if isAdmin();
+    }
+    
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin() && isValidTask(request.resource.data);
+    }
+    
+    match /userTasks/{userTaskId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      
+      // Allow user to create a task completion record
+      allow create: if isAuthenticated() && 
+                    request.resource.data.userId == request.auth.uid &&
+                    isValidUserTask(request.resource.data) &&
+                    // Verify reward matches the task's reward
+                    (
+                      request.resource.data.taskId == 'daily_bonus' || 
+                      request.resource.data.taskId == 'watch_ad' ||
+                      get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.reward == request.resource.data.reward
+                    );
+                    
+      allow update, delete: if isAdmin();
+    }
+  }
+}
