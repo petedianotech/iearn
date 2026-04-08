@@ -25,7 +25,7 @@ service cloud.firestore {
     }
     
     function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+      return email == "" || (email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"));
     }
     
     // ===============================================================
@@ -51,18 +51,19 @@ service cloud.firestore {
     }
     
     function isValidUserTask(data) {
-      return hasOnlyAllowedFields(['userId', 'taskId', 'reward', 'completedAt']) &&
+      return hasOnlyAllowedFields(['userId', 'taskId', 'reward', 'completedAt', 'source']) &&
              data.userId is string && data.userId.size() > 0 &&
              data.taskId is string && data.taskId.size() > 0 &&
              data.reward is number && data.reward > 0 &&
-             data.completedAt is timestamp;
+             data.completedAt is timestamp &&
+             ( !('source' in data) || data.source is string );
     }
     
     // ===============================================================
     // Rules
     // ===============================================================
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if isAuthenticated();
       
       // Allow creation if the user is creating their own profile, and role is 'user' (unless admin)
       allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && 

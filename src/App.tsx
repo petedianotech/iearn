@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { auth, db } from './firebase';
 import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
+  signInAnonymously, 
   onAuthStateChanged, 
   User as FirebaseUser,
   signOut
@@ -31,7 +30,8 @@ import {
   ArrowUp,
   LogOut,
   Loader2,
-  Download
+  Download,
+  Trophy
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -69,6 +69,8 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [isNative, setIsNative] = useState(false);
+
+  const [leaderboard, setLeaderboard] = useState<UserProfile[]>([]);
 
   useEffect(() => {
     // Check if running in Capacitor
@@ -110,8 +112,8 @@ export default function App() {
         
         if (!userSnap.exists()) {
           const newProfile: UserProfile = {
-            displayName: currentUser.displayName || 'User',
-            email: currentUser.email || '',
+            displayName: `Guest_${Math.floor(Math.random() * 10000)}`,
+            email: '',
             balance: 0,
             dailyEarnings: 0,
             role: 'user'
@@ -136,20 +138,32 @@ export default function App() {
           setTasks(taskData);
           
           // Seed tasks if empty (for demo purposes)
-          if (taskData.length === 0 && currentUser.email === 'petedianotech@gmail.com') {
+          if (taskData.length === 0) {
             seedTasks();
           }
+        });
+
+        // Listen to leaderboard
+        const leaderboardRef = query(collection(db, 'users'), where('balance', '>', 0));
+        const unsubLeaderboard = onSnapshot(leaderboardRef, (snapshot) => {
+          const users = snapshot.docs.map(doc => doc.data() as UserProfile);
+          // Sort client-side to avoid needing a composite index immediately
+          users.sort((a, b) => b.balance - a.balance);
+          setLeaderboard(users.slice(0, 10));
         });
 
         setLoading(false);
         return () => {
           unsubProfile();
           unsubTasks();
+          unsubLeaderboard();
         };
       } else {
-        setProfile(null);
-        setTasks([]);
-        setLoading(false);
+        // Auto login anonymously if not logged in
+        signInAnonymously(auth).catch(error => {
+          console.error("Error signing in anonymously:", error);
+          setLoading(false);
+        });
       }
     });
 
@@ -171,6 +185,27 @@ export default function App() {
         reward: 1200,
         type: 'game',
         color: 'border-yellow-500'
+      },
+      {
+        title: 'Watch Video Ad',
+        description: 'Watch a 30-second video',
+        reward: 50,
+        type: 'ad',
+        color: 'border-blue-500'
+      },
+      {
+        title: 'Follow on Twitter',
+        description: 'Follow our official page',
+        reward: 150,
+        type: 'bonus',
+        color: 'border-purple-500'
+      },
+      {
+        title: 'Complete Profile',
+        description: 'Add your phone number',
+        reward: 300,
+        type: 'survey',
+        color: 'border-orange-500'
       }
     ];
     
@@ -179,18 +214,52 @@ export default function App() {
     }
   };
 
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error('Login error:', error);
-      alert('Failed to login. Please try again.');
+  const handleLogout = async () => {
+    // With anonymous auth, logging out will lose the account unless linked.
+    // For this open app, we can just clear local state or sign out.
+    if (window.confirm("Logging out of a guest account will lose your progress. Are you sure?")) {
+      await signOut(auth);
+      window.location.reload();
     }
   };
 
-  const handleLogout = async () => {
-    await signOut(auth);
+  const handleDailyBonus = async () => {
+    if (!user || !profile || actionLoading) return;
+    
+    // Check if 24 hours have passed
+    const now = new Date();
+    if (profile.lastBonusAt) {
+      const lastBonus = profile.lastBonusAt.toDate();
+      const diffHours = Math.abs(now.getTime() - lastBonus.getTime()) / 36e5;
+      if (diffHours < 24) {
+        alert(`You already claimed your daily bonus! Come back in ${Math.ceil(24 - diffHours)} hours.`);
+        return;
+      }
+    }
+
+    setActionLoading(true);
+    try {
+      const reward = 250;
+      await addDoc(collection(db, 'userTasks'), {
+        userId: user.uid,
+        taskId: 'daily_bonus',
+        reward,
+        completedAt: serverTimestamp()
+      });
+
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        balance: increment(reward),
+        dailyEarnings: increment(reward),
+        lastBonusAt: serverTimestamp()
+      });
+      alert(`You claimed your daily bonus of MWK ${reward}!`);
+    } catch (error) {
+      console.error('Bonus error:', error);
+      alert('Failed to claim bonus.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleTaskComplete = async (taskId: string, reward: number) => {
@@ -222,31 +291,14 @@ export default function App() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
-  if (!user || !profile) {
+  if (loading || !user || !profile) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center">
-          <div className="w-20 h-20 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-blue-200">
-            <span className="text-4xl font-black italic text-white">ie</span>
-          </div>
-          <h1 className="text-3xl font-black text-gray-900 mb-2">Welcome to Iearn</h1>
-          <p className="text-gray-500 mb-8">Complete tasks, play games, and earn real money in Malawi.</p>
-          <button 
-            onClick={handleLogin}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-xl transition-colors shadow-md flex items-center justify-center gap-2"
-          >
-            <UserIcon className="w-5 h-5" />
-            Continue with Google
-          </button>
+        <div className="w-20 h-20 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-blue-200 animate-pulse">
+          <span className="text-4xl font-black italic text-white">ie</span>
         </div>
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-4" />
+        <p className="text-gray-500 font-medium">Loading your account...</p>
       </div>
     );
   }
@@ -298,7 +350,7 @@ export default function App() {
       {/* Quick Action Grid */}
       <div className="px-4 grid grid-cols-2 gap-4 -mt-6 relative z-20">
         <button 
-          onClick={() => handleTaskComplete('daily_bonus', 250)}
+          onClick={handleDailyBonus}
           disabled={actionLoading}
           className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center hover:shadow-md transition-all active:scale-95 disabled:opacity-70"
         >
@@ -420,6 +472,42 @@ export default function App() {
         </div>
       )}
 
+      {activeTab === 'leaderboard' && (
+        <div className="p-5 mt-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <Trophy className="w-6 h-6 text-yellow-500" />
+            Top Earners
+          </h2>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {leaderboard.length === 0 ? (
+              <div className="p-6 text-center text-gray-500">No earners yet. Be the first!</div>
+            ) : (
+              leaderboard.map((lUser, index) => (
+                <div key={index} className="flex items-center justify-between p-4 border-b border-gray-50 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm",
+                      index === 0 ? "bg-yellow-100 text-yellow-700" : 
+                      index === 1 ? "bg-gray-200 text-gray-700" : 
+                      index === 2 ? "bg-orange-100 text-orange-700" : "bg-blue-50 text-blue-600"
+                    )}>
+                      {index + 1}
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-800 text-sm">{lUser.displayName}</p>
+                      {lUser.displayName === profile.displayName && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">You</span>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-green-600 text-sm">MWK {lUser.balance.toLocaleString()}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'profile' && (
         <div className="p-5 mt-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <h2 className="text-xl font-bold text-gray-800 mb-4">My Profile</h2>
@@ -470,6 +558,13 @@ export default function App() {
         >
           <Wallet className={cn("w-6 h-6 mb-1", activeTab === 'wallet' && "fill-blue-50")} />
           <span className="text-[10px] font-bold">Wallet</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('leaderboard')}
+          className={cn("flex flex-col items-center p-2 rounded-xl transition-all w-16", activeTab === 'leaderboard' ? "text-blue-600" : "text-gray-400 hover:text-gray-600")}
+        >
+          <Trophy className={cn("w-6 h-6 mb-1", activeTab === 'leaderboard' && "fill-blue-50")} />
+          <span className="text-[10px] font-bold">Top</span>
         </button>
         <button 
           onClick={() => setActiveTab('profile')}
